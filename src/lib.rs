@@ -188,3 +188,24 @@ pub mod helpers {
         info!("I2C scan complete. {} devices found.", found_devices);
     }
 }
+
+    // let msb: u8 = 0x00;
+    // let lsb: u8 = 0x10;
+
+    // println!("msb is: {:b}, lsb is: {:b}", msb, lsb);
+
+    // let f = (((msb as u16) << 8 | (lsb as u16)) >> 4);
+    // println!("f is: {:b}", f);
+
+    // let mut x: f32 = 0.0;
+
+    // if f & 0x800 != 0 {
+    //     // sign extend
+    //     let signed_val = (f | 0xF000) as i16;
+    //     println!("f_neg is: {}", signed_val);
+    //     x = (signed_val as f32) * 0.0625
+    // } else {
+    //     x = (f as f32) * 0.0625;
+    // }
+
+    // println!("x is: {}", x);
