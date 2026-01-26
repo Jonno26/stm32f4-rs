@@ -2,11 +2,13 @@
 #![no_main]
 
 use defmt::*;
+use embedded_hal_1::delay::DelayNs;
+use mpu6050::*;
 
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 
-use embassy_time::Timer;
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 // pub mod board;
 // pub use board::*;
@@ -22,40 +24,59 @@ async fn spawner(_spawner: Spawner) {
 }
 
 async fn main() -> BoardResult<()> {
-    let stm32f4_board = STM32F4::init();
+    let mut board = STM32F4::init();
     info!("Hello World!");
 
-    let mut led = Output::new(stm32f4_board.led_pin, Level::High, Speed::High);
+    let i2c = board.i2c1;
 
-    // let spi = Spi::new_blocking(
-    //     stm32f4_board.spi1.spi,
-    //     stm32f4_board.spi1.sck,
-    //     stm32f4_board.spi1.mosi,
-    //     stm32f4_board.spi1.miso,
-    //     stm32f4_board.spi1.config,
-    // );
+    let mut mpu = mpu6050::Mpu6050::new(i2c);
 
-    let i2c = stm32f4_board.i2c1;
+    let mut delay = Delay;
+    let _ = mpu.init(&mut delay).unwrap();
+
+    // let i2c = helpers::i2c_scanner(i2c);
 
     // let mut read_buf: [u8; 2] = [0; 2];
 
-    let mut temp_sensor = TempSensorHAL::new(i2c);
+    // let mut temp_sensor = TempSensor::new(i2c);
 
-    let (temp, rh) = temp_sensor.read_temperature_and_humidity()?;
-    info!("temp is: {}°C, rh is: {}%", temp, rh);
+    // let (temp, rh) = temp_sensor.read_temperature_and_humidity()?;
+    // info!("temp is: {}°C, rh is: {}%", temp, rh);
 
-    let i2c = temp_sensor.inner();
+    // let i2c = temp_sensor.inner();
 
-    let mut imu = IMU::new(i2c);
-    imu.init()?;
+    // let mut imu = IMU::new(i2c);
+    // imu.init()?;
 
     loop {
-        // info!("high");
-        led.set_high();
-        Timer::after_millis(500).await;
+        // get roll and pitch estimate
+        // let acc = mpu.get_acc_angles().unwrap();
+        // for row in &acc {
+        //     info!("row is: {}", row);
+        // }
 
-        // info!("low");
-        led.set_low();
+        // // get sensor temp
+        // let temp = mpu.get_temp().unwrap();
+        // println!("temp: {:?}c", temp);
+
+        // get gyro data, scaled with sensitivity
+        // let gyro = mpu.get_gyro().unwrap();
+        // for row in &gyro {
+        //     info!("row is: {}", row);
+        // }
+
+        // // get accelerometer data, scaled with sensitivity
+        let acc = mpu.get_acc().unwrap();
+        for row in &acc {
+            info!("row is: {}", row);
+        }
+        info!("--------------");
+
+        // board.red_led.set_high();
+        // Timer::after_millis(500).await;
+
+        // board.red_led.set_low();
+        board.red_led.toggle();
         Timer::after_millis(500).await;
     }
 }

@@ -8,4 +8,4 @@ runner = "probe-rs run --chip STM32F411CEUx --connect-under-reset"
 target = "thumbv7em-none-eabihf"
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "debug"
