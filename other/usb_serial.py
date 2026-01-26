@@ -11,7 +11,7 @@ try:
     print(f"Port {port} opened successfully at {baudrate} baud")
     # time.sleep(2)  # Wait for device to initialize
 
-    message = b'Hello STM32 this is Jonno26 yesshddddddddddddddd yayayayaya ahahahahanig\n'
+    message = b'Hello STM32 test one two three four five six seven eight nine ten eleven twelve thirteen fourteen\n'
     print(f"Sending: {message.decode('utf-8').rstrip()}")
     ser.write(message)
     ser.flush()  # Ensure data is sent immediately
