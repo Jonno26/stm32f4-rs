@@ -23,6 +23,9 @@ pub type BoardResult<T> = Result<T, BoardError>;
 
 /////////
 pub const MAX_M10S_ADDRESS: u8 = 0x42;
+pub const MAX_M10S_NUM_BYTES_HIGH_ADDR: u8 = 0xFD;
+pub const MAX_M10S_NUM_BYTES_LOW_ADDR: u8 = 0xFE;
+pub const MAX_M10S_DATA_ADDR: u8 = 0xFF;
 
 #[derive(Debug)]
 pub enum BoardError {

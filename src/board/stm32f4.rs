@@ -11,9 +11,10 @@ use embassy_stm32::{
     },
     spi::{Config as SpiConfig, Spi},
     time::Hertz,
+    usart::{Config as UsartConfig, Uart},
 };
 
-use embassy_stm32::peripherals::{I2C1, PA4, PA5, PA6, PA7, PA11, PA12, PB6, PB7, SPI1};
+use embassy_stm32::peripherals::{I2C1, PA4, PA5, PA6, PA7, PA8, PA11, PA12, PB6, PB7, SPI1};
 
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -29,7 +30,11 @@ pub struct STM32F4<'a> {
     pub pa11: Peri<'a, PA11>,
     pub pa12: Peri<'a, PA12>,
 
+    pub m10_reset: Output<'a>,
+
     pub i2c1: I2c<'a, Blocking, Master>,
+
+    pub uart1: Uart<'a, Blocking>,
 
     pub usb_otg_fs: Peri<'a, USB_OTG_FS>,
 }
@@ -41,11 +46,22 @@ impl<'a> STM32F4<'a> {
         let p = embassy_stm32::init(stm_config);
         let mut i2c_config = I2cConfig::default();
         i2c_config.frequency = Hertz::khz(400);
-        // let spi_config = SpiConfig::default();
+        i2c_config.timeout = embassy_time::Duration::from_millis(2000);
+        i2c_config.scl_pullup = false;
+        i2c_config.sda_pullup = false;
+        // i2c_config.gpio_speed = Speed::High;
 
         let i2c1 = I2c::new_blocking(p.I2C1, p.PB6, p.PB7, i2c_config);
 
         let red_led = Output::new(p.PB13, Level::Low, Speed::Low);
+        let m10_reset = Output::new(p.PA8, Level::High, Speed::Low);
+
+        let mut uart_config = UsartConfig::default();
+        uart_config.baudrate = 9600;
+        uart_config.parity = embassy_stm32::usart::Parity::ParityNone;
+        uart_config.stop_bits = embassy_stm32::usart::StopBits::STOP1;
+        uart_config.data_bits = embassy_stm32::usart::DataBits::DataBits8;
+        let uart1 = Uart::new_blocking(p.USART1, p.PA10, p.PA9, uart_config).unwrap();
 
         Self {
             red_led,
@@ -53,7 +69,9 @@ impl<'a> STM32F4<'a> {
             pb9: p.PB9.into(),
             pa11: p.PA11,
             pa12: p.PA12,
+            m10_reset,
             i2c1, // cs: p.PA4.into(),
+            uart1,
             usb_otg_fs: p.USB_OTG_FS,
         }
     }
@@ -70,20 +88,20 @@ impl<'a> STM32F4<'a> {
 
         stm_config.rcc.sys = Sysclk::HSE;
 
-        stm_config.rcc.pll_src = PllSource::HSE;
-        stm_config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV12,
-            mul: PllMul::MUL168,
-            divp: Some(PllPDiv::DIV4), // (24MHz/12) * 168 / 4 = 84MHz
-            divq: Some(PllQDiv::DIV7), // (24MHz/12) * 168 / 7 = 48MHz. USB clock needs to be 48MHz 
-            divr: None,
-        });
+        // stm_config.rcc.pll_src = PllSource::HSE;
+        // stm_config.rcc.pll = Some(Pll {
+        //     prediv: PllPreDiv::DIV12,
+        //     mul: PllMul::MUL168,
+        //     divp: Some(PllPDiv::DIV4), // (24MHz/12) * 168 / 4 = 84MHz
+        //     divq: Some(PllQDiv::DIV7), // (24MHz/12) * 168 / 7 = 48MHz. USB clock needs to be 48MHz
+        //     divr: None,
+        // });
 
-        stm_config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        stm_config.rcc.apb1_pre = APBPrescaler::DIV4;
-        stm_config.rcc.apb2_pre = APBPrescaler::DIV2;
-        stm_config.rcc.sys = Sysclk::PLL1_P;
-        stm_config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
+        // stm_config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        // stm_config.rcc.apb1_pre = APBPrescaler::DIV4;
+        // stm_config.rcc.apb2_pre = APBPrescaler::DIV2;
+        // stm_config.rcc.sys = Sysclk::PLL1_P;
+        // stm_config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
 
         stm_config
     }

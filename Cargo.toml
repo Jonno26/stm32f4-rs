@@ -35,6 +35,8 @@ static_cell = "2"
 micromath = "2.0.0"
 
 mpu6050 = "0.1.6"
+ublox = { version = "0.9.0", default-features = false, features = ["ubx_proto31"] }
+
 
 [profile.dev]
 
