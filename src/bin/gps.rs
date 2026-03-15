@@ -9,8 +9,9 @@ use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 use ublox::{
-    Parser, UbxPacket,
-    proto31::{PacketRef, Proto31},
+    Parser, ParserError, UbxPacket,
+    nav_pvt::proto33::NavPvt,
+    proto33::{PacketRef, Proto33},
 };
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -22,7 +23,7 @@ async fn main(_spawner: Spawner) {
     let mut i2c = board.i2c1;
     i2c = helpers::i2c_scanner(i2c);
 
-    // UBX NAV-PVT poll request
+    // UBX NAV-PVT poll request format
     let poll_pvt: [u8; 8] = [
         0xB5, 0x62, // sync chars
         0x01, 0x07, // class = NAV, id = PVT
@@ -30,87 +31,130 @@ async fn main(_spawner: Spawner) {
         0x08, 0x19, // checksum
     ];
 
-    i2c.blocking_write(MAX_M10S_ADDRESS, &poll_pvt).unwrap();
-
     // Initialize the parser
-    let mut parser: Parser<ublox::FixedBuffer<256>, Proto31> = Parser::new_fixed();
-    // let mut parser = Parser::default
+    let mut parser: Parser<ublox::FixedBuffer<256>, Proto33> = Parser::new_fixed();
 
+    let mut r_buf: [u8; 2] = [0; 2];
+    let write_buf = [MAX_M10S_NUM_BYTES_HIGH_ADDR];
     let mut buf: [u8; 256] = [0; 256];
 
     loop {
         i2c.blocking_write(MAX_M10S_ADDRESS, &poll_pvt).unwrap();
-        // Timer::after_millis(50).await;
+
+        // // Read out how many bytes are available to read
+        // i2c.blocking_write_read(MAX_M10S_ADDRESS, &write_buf, &mut r_buf)
+        //     .unwrap();
+
+        // let bytes_available = ((r_buf[0] as usize) << 8) | (r_buf[1] as usize);
+
+        // if bytes_available > 1024 {
+        // info!("Bytes available to read: {}", bytes_available);
 
         i2c.blocking_read(MAX_M10S_ADDRESS, &mut buf).unwrap();
 
         let mut it = parser.consume_ubx(&buf);
         loop {
             match it.next() {
-                Some(Ok(UbxPacket::Proto31(p))) => {
-                    info!("proto31 packet received");
-                    handle_packet_proto31(p);
+                Some(Ok(UbxPacket::Proto33(p))) => {
+                    info!("proto33 packet received");
+                    handle_packet_proto33(p);
                 }
 
-                Some(Err(e)) => {
-                    info!("PARSER ERROR - Received malformed packet");
-                }
+                Some(Err(e)) => match e {
+                    ParserError::InvalidChecksum { expect, got } => {
+                        error!(
+                            "PARSER ERROR - INVALID CHECKSUM - expected {:02X} but got {:02X}",
+                            expect, got
+                        );
+                    }
+                    ParserError::InvalidField { packet, field } => {
+                        error!(
+                            "PARSER ERROR - INVALID FIELD - packet: {}, field: {}",
+                            packet, field
+                        );
+                    }
+                    ParserError::InvalidPacketLen {
+                        packet,
+                        expect,
+                        got,
+                    } => {
+                        error!(
+                            "PARSER ERROR - INVALID PACKET LENGTH- packet: {}, expected: {}, got: {}",
+                            packet, expect, got
+                        );
+                    }
+                    ParserError::OutOfMemory { required_size } => {
+                        error!(
+                            "PARSER ERROR - Parser Buffer Too Small - required size: {}",
+                            required_size
+                        );
+                    }
+                },
                 None => {
-                    info!("No more packets to parse");
+                    // debug!("No more packets to parse - buffer cannot yield another full packet");
                     // The internal buffer is now empty
                     break;
                 }
             }
         }
+        // }
 
-        Timer::after_millis(800).await;
+        Timer::after_millis(150).await;
     }
-
-    // let mut buffer: [u8; 128] = [0; 128];
-    // i2c.blocking_read(MAX_M10S_ADDRESS, &mut buffer).unwrap();
-
-    // In a real application, replace this with your UART reading logic
-    // let mut uart = board.uart1;
-    // uart.blocking_read(&mut buffer).unwrap();
-
-    // info!("here is the buffer: {:X}", buffer);
-    // Consume bytes and iterate over packets
-    // let mut it = parser.consume_ubx(&buffer);
-    // loop {
-    //     match it.next() {
-    //         Some(Ok(UbxPacket::Proto31(p))) => {
-    //             info!("proto31 packet received");
-    //             handle_packet_proto31(p);
-    //         }
-
-    //         Some(Err(e)) => {
-    //             info!("PARSER ERROR - Received malformed packet");
-    //         }
-    //         None => {
-    //             info!("No more packets to parse");
-    //             // The internal buffer is now empty
-    //             break;
-    //         }
-    //     }
-    // }
-
-    loop {}
 }
 
-fn handle_packet_proto31(p: ublox::proto31::PacketRef) {
+fn handle_packet_proto33(p: PacketRef) {
     info!("Received UBX packet");
     match p {
-        ublox::proto31::PacketRef::NavPvt(nav_pvt) => {
-            info!("Speed: {} [m/s]", nav_pvt.ground_speed_2d());
+        PacketRef::NavPvt(nav_pvt) => {
+            info!("================================");
+            info!("Payload length: {} [bytes]", nav_pvt.payload_len());
+
+            match nav_pvt.fix_type() {
+                ublox::GnssFixType::NoFix => info!("No Fix"),
+                ublox::GnssFixType::DeadReckoningOnly => info!("Dead Reckoning only"),
+                ublox::GnssFixType::Fix2D => info!("2D Fix"),
+                ublox::GnssFixType::Fix3D => info!("3D Fix"),
+                ublox::GnssFixType::GPSPlusDeadReckoning => info!("GNSS + dead reckoning combined"),
+                ublox::GnssFixType::TimeOnlyFix => info!("Time only fix"),
+                _ => info!("Unknown fix type"),
+            }
+
+            info!("Ground Speed: {} [m/s]", nav_pvt.ground_speed_2d());
             info!("Latitude: {} [degrees]", nav_pvt.latitude());
             info!("Longitude: {} [degrees]", nav_pvt.longitude());
             info!("Height: {} [m]", nav_pvt.height_msl());
-            info!("Satellites: {}", nav_pvt.num_satellites());
+            info!(
+                "# of Satellites used in solution: {}",
+                nav_pvt.num_satellites()
+            );
+            info!(
+                "UTC Date: {}-{}-{}",
+                nav_pvt.year(),
+                nav_pvt.month(),
+                nav_pvt.day()
+            );
+            info!(
+                "UTC Time: {}:{}:{}",
+                nav_pvt.hour(),
+                nav_pvt.min(),
+                nav_pvt.sec()
+            );
+            info!(
+                "Horizontal Accuracy Estimate: {} [mm]",
+                nav_pvt.horizontal_accuracy()
+            );
+            info!(
+                "Vertical Accuracy Estimate: {} [mm]",
+                nav_pvt.vertical_accuracy()
+            );
+            info!("Time Accuracy Estimate: {} [ns]", nav_pvt.time_accuracy());
+            info!("================================");
         }
-        ublox::proto31::PacketRef::EsfMeas(esf_meas) => {
-            for data in esf_meas.data() {
-                info!("ESF MEAS DATA");
-            }
+
+        PacketRef::MonVer(mon_ver) => {
+            debug!("Hardware Version: {}", mon_ver.hardware_version());
+            debug!("Firmware Version: {}", mon_ver.software_version());
         }
         _ => (),
     }

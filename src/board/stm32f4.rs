@@ -46,7 +46,7 @@ impl<'a> STM32F4<'a> {
         let p = embassy_stm32::init(stm_config);
         let mut i2c_config = I2cConfig::default();
         i2c_config.frequency = Hertz::khz(400);
-        i2c_config.timeout = embassy_time::Duration::from_millis(2000);
+        i2c_config.timeout = embassy_time::Duration::from_millis(2500);
         i2c_config.scl_pullup = false;
         i2c_config.sda_pullup = false;
         // i2c_config.gpio_speed = Speed::High;
