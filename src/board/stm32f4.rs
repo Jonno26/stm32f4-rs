@@ -1,10 +1,11 @@
-use defmt::*;
-use embassy_executor::Spawner;
-use embassy_stm32::{
-    Config, Peri, PeripheralType, Peripherals,
+pub use defmt::*;
+pub use embassy_executor::Spawner;
+pub use embassy_stm32::{
+    Config, Peri, PeripheralType, Peripherals, bind_interrupts,
     gpio::{AnyPin, Level, Output, Speed},
     i2c::{Config as I2cConfig, I2c, Master, SclPin, SdaPin},
-    peripherals::{I2C2, USB_OTG_FS},
+    mode::{Async, Blocking},
+    peripherals::{I2C1, I2C2, USB_OTG_FS},
     rcc::{
         AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv,
         PllSource, Sysclk, mux,
@@ -14,12 +15,14 @@ use embassy_stm32::{
     usart::{Config as UsartConfig, Uart},
 };
 
-use embassy_stm32::peripherals::{I2C1, PA4, PA5, PA6, PA7, PA8, PA11, PA12, PB6, PB7, SPI1};
-
-use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+pub use embassy_time::Timer;
 
 use crate::prelude::*;
+
+bind_interrupts!(struct Irqs {
+    I2C2_EV => embassy_stm32::i2c::EventInterruptHandler<I2C2>;
+    I2C2_ER => embassy_stm32::i2c::ErrorInterruptHandler<I2C2>;
+});
 
 pub struct STM32F4<'a> {
     pub red_led: Output<'a>,
@@ -29,10 +32,12 @@ pub struct STM32F4<'a> {
     // pub cs: Peri<'static, AnyPin>,
     pub pa11: Peri<'a, PA11>,
     pub pa12: Peri<'a, PA12>,
-
+    pub imu_int_pin: Peri<'a, PB8>,
+    pub imu_int_ch: Peri<'a, EXTI8>,
     pub m10_reset: Output<'a>,
 
     pub i2c1: I2c<'a, Blocking, Master>,
+    pub temp_i2c: I2c<'a, Async, Master>,
 
     pub uart1: Uart<'a, Blocking>,
 
@@ -52,9 +57,15 @@ impl<'a> STM32F4<'a> {
         // i2c_config.gpio_speed = Speed::High;
 
         let i2c1 = I2c::new_blocking(p.I2C1, p.PB6, p.PB7, i2c_config);
+        let temp_i2c = I2c::new(
+            p.I2C2, p.PB10, p.PB3, Irqs, p.DMA1_CH7, p.DMA1_CH3, i2c_config,
+        );
 
         let red_led = Output::new(p.PB13, Level::Low, Speed::Low);
         let m10_reset = Output::new(p.PA8, Level::High, Speed::Low);
+
+        let imu_int_pin = p.PB8;
+        let imu_int_ch = p.EXTI8;
 
         let mut uart_config = UsartConfig::default();
         uart_config.baudrate = 9600;
@@ -69,8 +80,11 @@ impl<'a> STM32F4<'a> {
             pb9: p.PB9.into(),
             pa11: p.PA11,
             pa12: p.PA12,
+            imu_int_pin,
+            imu_int_ch,
             m10_reset,
             i2c1, // cs: p.PA4.into(),
+            temp_i2c,
             uart1,
             usb_otg_fs: p.USB_OTG_FS,
         }

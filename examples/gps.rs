@@ -1,22 +1,32 @@
 #![no_std]
 #![no_main]
 
-use embassy_time::{Duration, block_for};
+use embassy_time::{Duration, Timer};
 pub use stm32f4_rs::prelude::*;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use ublox::mon_hw::JammingState;
 use {defmt_rtt as _, panic_probe as _};
+
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
+use static_cell::StaticCell;
+
+static I2C_BUS: StaticCell<Mutex<NoopRawMutex, I2c<'static, Async, Master>>> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut board = STM32F4::init();
+    let board = STM32F4::init();
 
     let m10_reset = board.m10_reset;
     info!("m10 reset pin is: {}", m10_reset.get_output_level());
 
-    let mut i2c = board.i2c1;
+    let i2c = board.temp_i2c;
+    let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
+    let gps_i2c = I2cDevice::new(i2c_bus);
+    let temp_i2c = I2cDevice::new(i2c_bus);
+
     // i2c = helpers::i2c_scanner(i2c);
 
     // UBX NAV-PVT poll request format
@@ -41,13 +51,13 @@ async fn main(_spawner: Spawner) {
     // let write_buf = [MAX_M10S_NUM_BYTES_HIGH_ADDR];
     // let mut buf: [u8; 256] = [0; 256];
 
-    let mut max_m10s = MaxM10s::new(i2c);
+    let mut max_m10s = MaxM10s::new(gps_i2c);
 
     // max_m10s.get_version();
     // max_m10s.get_sec_sig_msg();
 
-    // loop {
-    //     max_m10s.get_pvt();
-    //     block_for(Duration::from_millis(1000));
-    // }
+    loop {
+        max_m10s.get_pvt().await.unwrap();
+        Timer::after(Duration::from_millis(1000)).await;
+    }
 }
