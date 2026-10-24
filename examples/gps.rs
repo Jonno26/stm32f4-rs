@@ -1,31 +1,51 @@
 #![no_std]
 #![no_main]
 
+use embassy_stm32::{
+    i2c::{self, MultiMaster},
+    mode,
+};
 use embassy_time::{Duration, Timer};
 pub use stm32f4_rs::prelude::*;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use {defmt_rtt as _, panic_probe as _};
 
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use static_cell::StaticCell;
 
+use {defmt_rtt as _, panic_probe as _};
+
 static I2C_BUS: StaticCell<Mutex<NoopRawMutex, I2c<'static, Async, Master>>> = StaticCell::new();
 
+pub type AsyncI2cDevice<'a> =
+    I2cDevice<'a, NoopRawMutex, embassy_stm32::i2c::I2c<'a, mode::Async, i2c::mode::Master>>;
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn application(_spawner: Spawner) {
+    let ret = main(_spawner).await;
+
+    match ret {
+        Ok(_) => {}
+        Err(e) => {
+            error!("Ran into an error")
+        }
+    }
+}
+
+// #[embassy_executor::main]
+async fn main<'a>(_spawner: Spawner) -> BoardResult<(), I2cDeviceError<i2c::Error>> {
     let board = STM32F4::init();
 
     let m10_reset = board.m10_reset;
-    info!("m10 reset pin is: {}", m10_reset.get_output_level());
+    info!("m10 reset pin is: {}", m10_reset.output_level());
 
-    let i2c = board.temp_i2c;
+    let i2c = board.internal_i2c;
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
     let gps_i2c = I2cDevice::new(i2c_bus);
-    let temp_i2c = I2cDevice::new(i2c_bus);
+    let internal_i2c = I2cDevice::new(i2c_bus);
 
     // i2c = helpers::i2c_scanner(i2c);
 
@@ -53,11 +73,13 @@ async fn main(_spawner: Spawner) {
 
     let mut max_m10s = MaxM10s::new(gps_i2c);
 
-    // max_m10s.get_version();
-    // max_m10s.get_sec_sig_msg();
+    max_m10s.get_version().await?;
 
     loop {
-        max_m10s.get_pvt().await.unwrap();
+        max_m10s.get_pvt().await?;
+        // Timer::after(Duration::from_millis(1000)).await;
+        // max_m10s.get_sec_sig_msg().await?;
+        // max_m10s.get_navsat().await?;
         Timer::after(Duration::from_millis(1000)).await;
     }
 }

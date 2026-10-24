@@ -31,7 +31,7 @@ async fn spawner(_spawner: Spawner) {
     }
 }
 
-async fn main() -> BoardResult<()> {
+async fn main() -> BoardResult<(), embassy_stm32::i2c::Error> {
     let mut board = STM32F4::init();
     info!("Hello World!");
 
@@ -49,9 +49,9 @@ async fn main() -> BoardResult<()> {
 
     let driver = Driver::new_fs(
         board.usb_otg_fs,
-        Irqs,
         board.pa12,
         board.pa11,
+        Irqs,
         &mut ep_out_buffer,
         config,
     );
@@ -82,18 +82,21 @@ async fn main() -> BoardResult<()> {
     // Create classes on the builder.
     let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
+    let mut channel = Usb::new(class);
+
     // Build the builder.
     let mut usb = builder.build();
 
     // Run the USB device.
     let usb_fut = usb.run();
 
-    // Do stuff with the class!
+    // // Do stuff with the class!
     let echo_fut = async {
         loop {
-            class.wait_connection().await;
+            channel.wait_connection().await;
             info!("Connected");
-            let _ = echo(&mut class).await;
+            // let _ = echo(&mut class).await;
+            let _ = wait_for_command(&mut channel).await;
             info!("Disconnected");
         }
     };
@@ -106,6 +109,25 @@ async fn main() -> BoardResult<()> {
     //     board.red_led.toggle();
     //     Timer::after_millis(500).await;
     // }
+
+    Ok(())
+}
+
+async fn wait_for_command(
+    channel: &mut impl Channel,
+) -> BoardResult<(), I2cDeviceError<i2c::Error>> {
+    let mut command = 0;
+    let mut payload = [0u8; MAX_PAYLOAD];
+
+    let payload_len = read_frame(channel, &mut command, &mut payload).await?;
+
+    let x = Command::convert_from(command);
+    if x == Command::UnknownCommand {
+        send_nack(channel).await?;
+    } else {
+        // received a valid command
+        send_ack(channel).await?;
+    }
 
     Ok(())
 }

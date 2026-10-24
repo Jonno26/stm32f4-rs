@@ -46,27 +46,20 @@ where
 
     pub async fn get_pvt(&mut self) -> Result<(), I2C::Error> {
         let mut buf: [u8; 256] = [0; 256];
-
         // self.poll_msg(NavPvt);
-
         // let mut bytes_available: u16 = 0;
-
         // while bytes_available < 1500 {
         //     let x = self.bytes_available_to_read();
         //     bytes_available = u16::from_be_bytes(x);
         //     info!("bytes available to read is: {}", bytes_available);
         //     // block_for(Duration::from_millis(1000));
         // }
-
         // block_for(Duration::from_millis(1000));
-
         // register pointer should now be at 0xFF since we already read from 0xFD and 0xFE
         // self.current_address_read(&mut buf);
-
         // let x = self.bytes_available_to_read();
         // bytes_available = u16::from_be_bytes(x);
         // info!("bytes available to read is: {}", bytes_available);
-
         loop {
             self.poll_msg(NavPvt).await?;
 
@@ -106,7 +99,34 @@ where
                 return Ok(());
             }
 
-            Timer::after(Duration::from_millis(100)).await;
+            Timer::after(Duration::from_millis(500)).await;
+            info!("could find proto33 packet ");
+        }
+    }
+
+    pub async fn get_navsat(&mut self) -> Result<(), I2C::Error> {
+        let mut buf: [u8; 512] = [0; 512];
+        self.poll_msg(NavSat).await?;
+
+        loop {
+            self.poll_msg(NavSat).await?;
+
+            // let x = self.bytes_available_to_read();
+            // bytes_available = u16::from_be_bytes(x);
+            // info!("bytes available to read is: {}", bytes_available);
+            self.random_address_read(MAX_M10S_DATA_ADDR, &mut buf)
+                .await?;
+
+            let mut it = self.parser.consume_ubx(&buf);
+
+            let packet_found = Self::find_packet_in_parser(&mut it);
+
+            if packet_found {
+                return Ok(());
+            }
+
+            Timer::after(Duration::from_millis(500)).await;
+            info!("could find proto33 packet ");
         }
     }
 
@@ -298,6 +318,32 @@ where
                         info!("Jamming intereference detected and no fix")
                     }
                     _ => info!("Warning; Jamming Detected!"),
+                }
+            }
+
+            PacketRef::RxmCor(r) => {
+                let eb_no = r.ebno();
+                info!("eb_now is: {}", eb_no);
+            }
+
+            PacketRef::RxmRawx(_) => {}
+
+            PacketRef::RxmRtcm(_) => {}
+
+            PacketRef::RxmSfrbx(_) => {}
+
+            PacketRef::NavSat(nav_sat) => {
+                info!("Number of SVs detected: {}, ", &nav_sat.num_svs());
+
+                for sv in nav_sat.svs() {
+                    let sv_id = sv.sv_id();
+                    let gnss_id = sv.gnss_id();
+                    let cno = sv.cno(); // Carrier-to-noise ratio (dBHz)
+
+                    println!(
+                        "GNSS: {:?}, SV ID: {}, Signal Strength (C/N0): {} dBHz",
+                        gnss_id, sv_id, cno
+                    );
                 }
             }
 
